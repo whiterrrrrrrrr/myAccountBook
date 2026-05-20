@@ -2,10 +2,12 @@
 // 新增一条记账：类型、分类、金额、日期、备注
 
 import 'package:my_account_book/constants/ledger_category_icons.dart';
+import 'package:my_account_book/constants/app_colors.dart';
 import 'package:my_account_book/data/ledger_database.dart';
 import 'package:my_account_book/models/ledger_category.dart';
 import 'package:my_account_book/models/transaction_record.dart';
 import 'package:my_account_book/pages/manage_categories_page.dart';
+import 'package:my_account_book/widgets/chinese_calendar_sheet.dart';
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 
@@ -18,6 +20,8 @@ class AddTransactionPage extends StatefulWidget {
 }
 
 class _AddTransactionPageState extends State<AddTransactionPage> {
+  static const double _maxAmountYuan = 99999999999;
+
   final LedgerDatabase _db = LedgerDatabase.instance;
   OverlayEntry? _toastEntry;
 
@@ -33,6 +37,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
 
   /// 金额输入（元）
   String _amountText = '';
+  String _calcText = '';
 
   /// 备注
   String _note = '';
@@ -103,6 +108,124 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   String get _displayAmount =>
       _amountText.isEmpty || _amountText == '.' ? '0.00' : _amountText;
 
+  bool get _hasCalcText => _calcText.isNotEmpty;
+
+  Color _incomeAccentFrom(Color expenseColor) {
+    return Color.from(
+      alpha: expenseColor.a,
+      red: 1 - expenseColor.r,
+      green: 1 - expenseColor.g,
+      blue: 1 - expenseColor.b,
+    );
+  }
+
+  Color _accentColor(BuildContext context) {
+    final Color expense = Theme.of(context).colorScheme.primary;
+    if (_isExpense) {
+      return expense;
+    }
+    return _incomeAccentFrom(expense);
+  }
+
+  bool _isOperator(String value) => value == '+' || value == '-';
+
+  double? _tryParseNumber(String text) {
+    if (text.isEmpty || text == '.') {
+      return null;
+    }
+    return double.tryParse(text);
+  }
+
+  String _formatNumber(double value) {
+    final String fixed = value.toStringAsFixed(2);
+    return fixed.replaceFirst(RegExp(r'\.?0+$'), '');
+  }
+
+  int _findOperatorIndex(String text) {
+    final int plusIndex = text.indexOf('+', 1);
+    final int minusIndex = text.indexOf('-', 1);
+    if (plusIndex < 0) {
+      return minusIndex;
+    }
+    if (minusIndex < 0) {
+      return plusIndex;
+    }
+    return plusIndex < minusIndex ? plusIndex : minusIndex;
+  }
+
+  String _currentOperand(String text) {
+    final int opIndex = _findOperatorIndex(text);
+    if (opIndex < 0) {
+      return text;
+    }
+    return text.substring(opIndex + 1);
+  }
+
+  bool _canAppendDot(String operand) => !operand.contains('.');
+
+  bool _canAppendDecimalDigits(String operand, String nextKey) {
+    if (nextKey == '.') {
+      return _canAppendDot(operand);
+    }
+    final int dotIndex = operand.indexOf('.');
+    if (dotIndex < 0) {
+      return true;
+    }
+    return operand.length - dotIndex - 1 < 2;
+  }
+
+  bool _applyExpressionToAmount(String expression) {
+    final int opIndex = _findOperatorIndex(expression);
+    if (opIndex < 0) {
+      final double? single = _tryParseNumber(expression);
+      if (single == null || single.abs() > _maxAmountYuan) {
+        return false;
+      }
+      _amountText = _formatNumber(single);
+      return true;
+    }
+
+    final String leftText = expression.substring(0, opIndex);
+    final String operator = expression.substring(opIndex, opIndex + 1);
+    final String rightText = expression.substring(opIndex + 1);
+    final double? left = _tryParseNumber(leftText);
+    if (left == null) {
+      return false;
+    }
+    if (rightText.isEmpty) {
+      _amountText = _formatNumber(left);
+      return true;
+    }
+    final double? right = _tryParseNumber(rightText);
+    if (right == null) {
+      return false;
+    }
+    final double result = operator == '+' ? left + right : left - right;
+    if (result.abs() > _maxAmountYuan) {
+      return false;
+    }
+    _amountText = _formatNumber(result);
+    return true;
+  }
+
+  void _startOrUpdateOperator(String op) {
+    if (!_hasCalcText) {
+      final String base = _amountText.isEmpty ? '0' : _amountText;
+      _calcText = '$base$op';
+      return;
+    }
+    if (_isOperator(_calcText.substring(_calcText.length - 1))) {
+      _calcText = '${_calcText.substring(0, _calcText.length - 1)}$op';
+      return;
+    }
+    final bool ok = _applyExpressionToAmount(_calcText);
+    if (!ok) {
+      _showFloatingToast('金额太大了，装不下啦');
+      return;
+    }
+    _calcText = '$_amountText$op';
+  }
+
   void _showFloatingToast(String message) {
     _toastEntry?.remove();
     _toastEntry = null;
@@ -128,7 +251,49 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   }
 
   void _onKeyboardTap(String key) {
+    if (key == 'C') {
+      setState(() {
+        _amountText = '';
+        _calcText = '';
+      });
+      return;
+    }
+
+    if (key == '+' || key == '-') {
+      setState(() => _startOrUpdateOperator(key));
+      return;
+    }
+
+    if (key == '=') {
+      if (!_hasCalcText) {
+        return;
+      }
+      setState(() {
+        if (_isOperator(_calcText.substring(_calcText.length - 1))) {
+          _calcText = _calcText.substring(0, _calcText.length - 1);
+        }
+        final bool ok = _applyExpressionToAmount(_calcText);
+        if (!ok) {
+          _showFloatingToast('金额太大了，装不下啦');
+          return;
+        }
+        _calcText = '';
+      });
+      return;
+    }
+
     if (key == 'back') {
+      if (_hasCalcText) {
+        setState(() {
+          _calcText = _calcText.substring(0, _calcText.length - 1);
+          if (_calcText.isNotEmpty) {
+            if (!_applyExpressionToAmount(_calcText)) {
+              _showFloatingToast('金额太大了，装不下啦');
+            }
+          }
+        });
+        return;
+      }
       if (_amountText.isEmpty) {
         return;
       }
@@ -138,25 +303,44 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
       return;
     }
 
-    if (key == '.') {
-      if (_amountText.contains('.')) {
+    if (key != '.' && int.tryParse(key) == null) {
+      return;
+    }
+
+    if (_hasCalcText) {
+      final String operand = _currentOperand(_calcText);
+      if (!_canAppendDecimalDigits(operand, key)) {
         return;
       }
       setState(() {
-        _amountText = _amountText.isEmpty ? '0.' : '$_amountText.';
+        if (key == '.' && operand.isEmpty) {
+          _calcText = '${_calcText}0.';
+        } else {
+          _calcText = '$_calcText$key';
+        }
+        final bool ok = _applyExpressionToAmount(_calcText);
+        if (!ok) {
+          _calcText = _calcText.substring(0, _calcText.length - 1);
+          _showFloatingToast('金额太大了，装不下啦');
+        }
       });
       return;
     }
 
-    final String next = '$_amountText$key';
-    final int dot = next.indexOf('.');
-    if (dot >= 0 && next.length - dot - 1 > 2) {
+    if (!_canAppendDecimalDigits(_amountText, key)) {
       return;
     }
 
-    final String candidate = _amountText == '0' ? key : next;
+    String candidate;
+    if (key == '.' && _amountText.isEmpty) {
+      candidate = '0.';
+    } else if (_amountText == '0' && key != '.') {
+      candidate = key;
+    } else {
+      candidate = '$_amountText$key';
+    }
     final double? amount = double.tryParse(candidate);
-    if (amount != null && amount > 999999) {
+    if (amount != null && amount.abs() > _maxAmountYuan) {
       _showFloatingToast('金额太大了，装不下啦');
       return;
     }
@@ -179,45 +363,19 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   }
 
   Future<void> _pickDate() async {
-    final DateTime now = DateTime.now();
-    final DateTime first = DateTime(now.year - 5);
-    final DateTime last = DateTime(now.year + 1, 12, 31);
-    DateTime temp = _occurredAt;
+    final DateTime first = DateTime(1970, 1, 1);
+    final DateTime last = DateTime(2100, 12, 31);
     final DateTime? picked = await showModalBottomSheet<DateTime>(
       context: context,
-      showDragHandle: true,
       isScrollControlled: true,
       constraints: BoxConstraints(
-        maxHeight: MediaQuery.of(context).size.height * 0.8,
+        maxHeight: MediaQuery.of(context).size.height * 0.72,
       ),
       builder: (BuildContext context) {
-        return SafeArea(
-          child: SingleChildScrollView(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: <Widget>[
-                  CalendarDatePicker(
-                    initialDate: _occurredAt,
-                    firstDate: first,
-                    lastDate: last,
-                    onDateChanged: (DateTime date) {
-                      temp = date;
-                    },
-                  ),
-                  const SizedBox(height: 12),
-                  SizedBox(
-                    width: double.infinity,
-                    child: FilledButton(
-                      onPressed: () => Navigator.of(context).pop(temp),
-                      child: const Text('完成'),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
+        return ChineseCalendarSheet(
+          initialDate: _occurredAt,
+          firstDate: first,
+          lastDate: last,
         );
       },
     );
@@ -230,21 +388,17 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   void _submit() {
     final LedgerCategory? selected = _selectedCategory;
     if (selected == null) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请先创建分类')));
+      _showFloatingToast('请选择分类');
       return;
     }
 
     final String raw = _amountText.trim();
     final double? yuan = double.tryParse(raw);
     if (yuan == null || yuan <= 0) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('请输入大于 0 的金额')));
+      _showFloatingToast('请输入大于 0 的金额');
       return;
     }
-    if (yuan > 999999) {
+    if (yuan > _maxAmountYuan) {
       _showFloatingToast('金额太大了，装不下啦');
       return;
     }
@@ -252,9 +406,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
     /// 转为分并存整，规避浮点误差
     final int cents = (yuan * 100).round();
     if (cents <= 0) {
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(const SnackBar(content: Text('金额太小，请重新输入')));
+      _showFloatingToast('金额太小，请重新输入');
       return;
     }
 
@@ -275,10 +427,15 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   }
 
   Widget _buildTypeSwitch() {
+    final Color accent = _accentColor(context);
     return Row(
       children: <Widget>[
         Expanded(
           child: SegmentedButton<bool>(
+            style: SegmentedButton.styleFrom(
+              selectedBackgroundColor: accent.withValues(alpha: 0.2),
+              selectedForegroundColor: accent,
+            ),
             showSelectedIcon: false,
             segments: const <ButtonSegment<bool>>[
               ButtonSegment<bool>(
@@ -315,26 +472,23 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
 
   Widget _buildSelectedCategoryCard(BuildContext context) {
     final LedgerCategory? selected = _selectedCategory;
+    final Color accent = _accentColor(context);
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         borderRadius: BorderRadius.circular(16),
-        color: Theme.of(
-          context,
-        ).colorScheme.primaryContainer.withValues(alpha: 0.45),
+        color: accent.withValues(alpha: 0.14),
       ),
       child: Row(
         children: <Widget>[
           CircleAvatar(
             radius: 20,
-            backgroundColor: Theme.of(
-              context,
-            ).colorScheme.primary.withValues(alpha: 0.14),
+            backgroundColor: accent.withValues(alpha: 0.2),
             child: Icon(
               LedgerCategoryIcons.iconForKey(
                 selected?.iconKey ?? LedgerCategoryIcons.fallbackKey,
               ),
-              color: Theme.of(context).colorScheme.primary,
+              color: accent,
             ),
           ),
           const SizedBox(width: 10),
@@ -343,9 +497,25 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
             style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600),
           ),
           const Spacer(),
-          Text(
-            _displayAmount,
-            style: const TextStyle(fontSize: 28, fontWeight: FontWeight.w700),
+          Column(
+            crossAxisAlignment: CrossAxisAlignment.end,
+            children: <Widget>[
+              Text(
+                _displayAmount,
+                style: const TextStyle(
+                  fontSize: 28,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              if (_hasCalcText)
+                Text(
+                  _calcText,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
+                ),
+            ],
           ),
         ],
       ),
@@ -366,6 +536,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
       ),
       itemBuilder: (BuildContext context, int index) {
         final ColorScheme scheme = Theme.of(context).colorScheme;
+        final Color accent = _accentColor(context);
         if (index == items.length) {
           return InkWell(
             borderRadius: BorderRadius.circular(10),
@@ -417,15 +588,15 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
                 decoration: BoxDecoration(
                   shape: BoxShape.circle,
                   color: selected
-                      ? scheme.primary.withValues(alpha: 0.18)
+                      ? accent.withValues(alpha: 0.18)
                       : scheme.surfaceContainerHighest.withValues(alpha: 0.7),
                   border: Border.all(
-                    color: selected ? scheme.primary : Colors.transparent,
+                    color: selected ? accent : Colors.transparent,
                   ),
                 ),
                 child: Icon(
                   LedgerCategoryIcons.iconForKey(category.iconKey),
-                  color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                  color: selected ? accent : scheme.onSurfaceVariant,
                   size: 20,
                 ),
               ),
@@ -436,7 +607,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
                 overflow: TextOverflow.ellipsis,
                 style: TextStyle(
                   fontSize: 12,
-                  color: selected ? scheme.primary : scheme.onSurfaceVariant,
+                  color: selected ? accent : scheme.onSurfaceVariant,
                   fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
                 ),
               ),
@@ -452,21 +623,25 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
       '1',
       '2',
       '3',
+      'back',
       '4',
       '5',
       '6',
+      '+',
       '7',
       '8',
       '9',
+      '-',
       '.',
       '0',
-      'back',
+      'C',
+      '=',
     ];
     return SafeArea(
       top: false,
       child: Container(
         decoration: BoxDecoration(
-          border: Border(top: BorderSide(color: Colors.grey.shade300)),
+          border: const Border(top: BorderSide(color: AppColors.panelDivider)),
           color: Theme.of(context).colorScheme.surface,
         ),
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
@@ -489,33 +664,40 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
                       style: const TextStyle(fontSize: 12),
                     ),
                   ),
-                  const Spacer(),
-                  IconButton(
-                    visualDensity: VisualDensity.compact,
-                    constraints: const BoxConstraints.tightFor(
-                      width: 32,
-                      height: 32,
-                    ),
-                    tooltip: '备注',
-                    onPressed: _editNote,
-                    icon: Stack(
-                      clipBehavior: Clip.none,
-                      children: <Widget>[
-                        const Icon(Icons.chat_bubble_outline, size: 18),
-                        if (_note.isNotEmpty)
-                          Positioned(
-                            right: -1,
-                            top: -1,
-                            child: Container(
-                              width: 7,
-                              height: 7,
-                              decoration: const BoxDecoration(
-                                shape: BoxShape.circle,
-                                color: Colors.redAccent,
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: _editNote,
+                      child: Container(
+                        height: 32,
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        decoration: BoxDecoration(
+                          borderRadius: BorderRadius.circular(8),
+                          color: Theme.of(context).colorScheme.surfaceContainer,
+                        ),
+                        child: Row(
+                          children: <Widget>[
+                            const Icon(Icons.chat_bubble_outline, size: 16),
+                            const SizedBox(width: 6),
+                            Expanded(
+                              child: Text(
+                                _note.isEmpty ? '添加备注' : _note,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: TextStyle(
+                                  fontSize: 12,
+                                  color: _note.isEmpty
+                                      ? Theme.of(
+                                          context,
+                                        ).colorScheme.onSurfaceVariant
+                                      : Theme.of(context).colorScheme.onSurface,
+                                ),
                               ),
                             ),
-                          ),
-                      ],
+                          ],
+                        ),
+                      ),
                     ),
                   ),
                 ],
@@ -527,8 +709,8 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
               physics: const NeverScrollableScrollPhysics(),
               itemCount: keys.length,
               gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                crossAxisCount: 3,
-                mainAxisSpacing: 6,
+                crossAxisCount: 4,
+                mainAxisSpacing: 12,
                 crossAxisSpacing: 6,
                 childAspectRatio: 2.6,
               ),
@@ -538,6 +720,8 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
                   return FilledButton.tonal(
                     style: FilledButton.styleFrom(
                       visualDensity: VisualDensity.compact,
+                      backgroundColor: AppColors.keyboardBackButtonBackground,
+                      foregroundColor: AppColors.keyboardBackButtonForeground,
                     ),
                     onPressed: () => _onKeyboardTap('back'),
                     child: const Icon(Icons.backspace_outlined, size: 18),
@@ -546,6 +730,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
                 return FilledButton.tonal(
                   style: FilledButton.styleFrom(
                     visualDensity: VisualDensity.compact,
+                    backgroundColor: AppColors.keyboardMainButtonBackground,
                   ),
                   onPressed: () => _onKeyboardTap(key),
                   child: Text(
@@ -558,17 +743,6 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
                 );
               },
             ),
-            const SizedBox(height: 6),
-            SizedBox(
-              width: double.infinity,
-              child: FilledButton(
-                style: FilledButton.styleFrom(
-                  visualDensity: VisualDensity.compact,
-                ),
-                onPressed: _submit,
-                child: const Text('保存'),
-              ),
-            ),
           ],
         ),
       ),
@@ -578,7 +752,23 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('记一笔')),
+      appBar: AppBar(
+        title: const Text('记一笔'),
+        actions: <Widget>[
+          TextButton(
+            style: TextButton.styleFrom(
+              foregroundColor: AppColors.actionConfirmForeground,
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+              textStyle: const TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            onPressed: _submit,
+            child: const Text('确认'),
+          ),
+        ],
+      ),
       body: ListView(
         padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
         children: <Widget>[
@@ -595,29 +785,6 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
             _buildCategoryGrid(),
           ],
           const SizedBox(height: 18),
-          if (_note.isNotEmpty)
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              decoration: BoxDecoration(
-                borderRadius: BorderRadius.circular(12),
-                color: Theme.of(
-                  context,
-                ).colorScheme.surfaceContainerHighest.withValues(alpha: 0.55),
-              ),
-              child: Row(
-                children: <Widget>[
-                  const Icon(Icons.notes, size: 18),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      _note,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                ],
-              ),
-            ),
           const SizedBox(height: 220),
         ],
       ),
@@ -645,13 +812,13 @@ class _FloatingToast extends StatelessWidget {
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
         decoration: BoxDecoration(
-          color: const Color(0xFFDFF6E0),
+          color: AppColors.toastBackground,
           borderRadius: BorderRadius.circular(22),
         ),
         child: Text(
           message,
           style: const TextStyle(
-            color: Color(0xFF2E7D32),
+            color: AppColors.toastForeground,
             fontSize: 14,
             fontWeight: FontWeight.w500,
             decoration: TextDecoration.none,
