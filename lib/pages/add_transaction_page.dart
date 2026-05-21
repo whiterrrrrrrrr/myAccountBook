@@ -119,8 +119,8 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
     );
   }
 
-  Color _accentColor(BuildContext context) {
-    final Color expense = Theme.of(context).colorScheme.primary;
+  Color _accentColor() {
+    final Color expense = AppColors.expenseAccent;
     if (_isExpense) {
       return expense;
     }
@@ -427,7 +427,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   }
 
   Widget _buildTypeSwitch() {
-    final Color accent = _accentColor(context);
+    final Color accent = _accentColor();
     return Row(
       children: <Widget>[
         Expanded(
@@ -472,7 +472,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
 
   Widget _buildSelectedCategoryCard(BuildContext context) {
     final LedgerCategory? selected = _selectedCategory;
-    final Color accent = _accentColor(context);
+    final Color accent = _accentColor();
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
@@ -536,7 +536,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
       ),
       itemBuilder: (BuildContext context, int index) {
         final ColorScheme scheme = Theme.of(context).colorScheme;
-        final Color accent = _accentColor(context);
+        final Color accent = _accentColor();
         if (index == items.length) {
           return InkWell(
             borderRadius: BorderRadius.circular(10),
@@ -642,7 +642,7 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
       child: Container(
         decoration: BoxDecoration(
           border: const Border(top: BorderSide(color: AppColors.panelDivider)),
-          color: Theme.of(context).colorScheme.surface,
+          color: AppColors.pageBackground,
         ),
         padding: const EdgeInsets.fromLTRB(12, 6, 12, 8),
         child: Column(
@@ -656,12 +656,17 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
                     style: OutlinedButton.styleFrom(
                       visualDensity: VisualDensity.compact,
                       padding: const EdgeInsets.symmetric(horizontal: 10),
+                      backgroundColor: AppColors.panelDivider,
+                      foregroundColor: Colors.black87,
                     ),
                     onPressed: _pickDate,
-                    icon: const Icon(Icons.event, size: 16),
+                    icon: const Icon(Icons.event, size: 18),
                     label: Text(
                       _dateFormat.format(_occurredAt),
-                      style: const TextStyle(fontSize: 12),
+                      style: const TextStyle(
+                        fontSize: 12,
+                        color: Colors.black87,
+                      ),
                     ),
                   ),
                   const SizedBox(width: 8),
@@ -670,15 +675,15 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
                       borderRadius: BorderRadius.circular(8),
                       onTap: _editNote,
                       child: Container(
-                        height: 32,
+                        height: 34,
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(8),
-                          color: Theme.of(context).colorScheme.surfaceContainer,
+                          color: AppColors.panelDivider,
                         ),
                         child: Row(
                           children: <Widget>[
-                            const Icon(Icons.chat_bubble_outline, size: 16),
+                            const Icon(Icons.chat_bubble_outline, size: 18),
                             const SizedBox(width: 6),
                             Expanded(
                               child: Text(
@@ -688,10 +693,8 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
                                 style: TextStyle(
                                   fontSize: 12,
                                   color: _note.isEmpty
-                                      ? Theme.of(
-                                          context,
-                                        ).colorScheme.onSurfaceVariant
-                                      : Theme.of(context).colorScheme.onSurface,
+                                      ? Colors.black54
+                                      : Colors.black,
                                 ),
                               ),
                             ),
@@ -752,20 +755,17 @@ class _AddTransactionPageState extends State<AddTransactionPage> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      backgroundColor: AppColors.pageBackground,
       appBar: AppBar(
+        backgroundColor: AppColors.pageBackground,
+        surfaceTintColor: Colors.transparent,
         title: const Text('记一笔'),
         actions: <Widget>[
-          TextButton(
-            style: TextButton.styleFrom(
-              foregroundColor: AppColors.actionConfirmForeground,
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              textStyle: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.w700,
-              ),
-            ),
+          IconButton(
+            iconSize: 26,
+            color: AppColors.actionConfirmIcon,
             onPressed: _submit,
-            child: const Text('确认'),
+            icon: const Icon(Icons.check),
           ),
         ],
       ),

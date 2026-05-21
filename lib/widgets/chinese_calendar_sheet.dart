@@ -21,7 +21,8 @@ class ChineseCalendarSheet extends StatefulWidget {
 class _ChineseCalendarSheetState extends State<ChineseCalendarSheet> {
   late DateTime _selectedDate;
   late DateTime _displayMonth;
-  int _monthSlideDirection = 1;
+  late int _currentPageIndex;
+  late final PageController _pageController;
   static const List<String> _weekdays = <String>[
     '一',
     '二',
@@ -41,48 +42,44 @@ class _ChineseCalendarSheetState extends State<ChineseCalendarSheet> {
       widget.initialDate.month,
       1,
     );
+    _currentPageIndex = _monthToIndex(_displayMonth);
+    _pageController = PageController(initialPage: _currentPageIndex);
   }
 
-  bool _canGoPrevMonth() {
-    final DateTime prev = DateTime(
-      _displayMonth.year,
-      _displayMonth.month - 1,
-      1,
-    );
-    return !prev.isBefore(
-      DateTime(widget.firstDate.year, widget.firstDate.month, 1),
-    );
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
   }
 
-  bool _canGoNextMonth() {
-    final DateTime next = DateTime(
-      _displayMonth.year,
-      _displayMonth.month + 1,
-      1,
-    );
-    return !next.isAfter(
-      DateTime(widget.lastDate.year, widget.lastDate.month, 1),
-    );
+  int get _monthCount {
+    return (widget.lastDate.year - widget.firstDate.year) * 12 +
+        (widget.lastDate.month - widget.firstDate.month) +
+        1;
   }
 
-  void _changeMonth(int delta) {
-    final DateTime next = DateTime(
-      _displayMonth.year,
-      _displayMonth.month + delta,
-      1,
-    );
-    if (next.isBefore(
-          DateTime(widget.firstDate.year, widget.firstDate.month, 1),
-        ) ||
-        next.isAfter(
-          DateTime(widget.lastDate.year, widget.lastDate.month, 1),
-        )) {
+  int _monthToIndex(DateTime month) {
+    return (month.year - widget.firstDate.year) * 12 +
+        (month.month - widget.firstDate.month);
+  }
+
+  DateTime _indexToMonth(int index) {
+    return DateTime(widget.firstDate.year, widget.firstDate.month + index, 1);
+  }
+
+  bool get _canGoPrevMonth => _currentPageIndex > 0;
+  bool get _canGoNextMonth => _currentPageIndex < _monthCount - 1;
+
+  Future<void> _animateToMonth(DateTime month) async {
+    final int index = _monthToIndex(month);
+    if (index < 0 || index >= _monthCount) {
       return;
     }
-    setState(() {
-      _monthSlideDirection = delta >= 0 ? 1 : -1;
-      _displayMonth = next;
-    });
+    await _pageController.animateToPage(
+      index,
+      duration: const Duration(milliseconds: 320),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   Future<void> _openYearMonthPicker() async {
@@ -96,21 +93,7 @@ class _ChineseCalendarSheetState extends State<ChineseCalendarSheet> {
     if (picked == null) {
       return;
     }
-    setState(() {
-      _displayMonth = DateTime(picked.year, picked.month, 1);
-    });
-  }
-
-  void _handleMonthSwipe(DragEndDetails details) {
-    final double? velocity = details.primaryVelocity;
-    if (velocity == null) {
-      return;
-    }
-    if (velocity < -120) {
-      _changeMonth(1);
-    } else if (velocity > 120) {
-      _changeMonth(-1);
-    }
+    await _animateToMonth(DateTime(picked.year, picked.month, 1));
   }
 
   bool _sameDay(DateTime a, DateTime b) {
@@ -120,212 +103,232 @@ class _ChineseCalendarSheetState extends State<ChineseCalendarSheet> {
   @override
   Widget build(BuildContext context) {
     final ColorScheme scheme = Theme.of(context).colorScheme;
-    final DateTime firstDay = DateTime(
-      _displayMonth.year,
-      _displayMonth.month,
-      1,
-    );
-    final int offset = (firstDay.weekday + 6) % 7;
-    final int daysInMonth = DateTime(
-      _displayMonth.year,
-      _displayMonth.month + 1,
-      0,
-    ).day;
-    final DateTime today = DateTime.now();
 
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            Row(
-              children: <Widget>[
-                IconButton(
-                  onPressed: _canGoPrevMonth() ? () => _changeMonth(-1) : null,
-                  icon: const Icon(
-                    Icons.chevron_left,
-                    color: AppColors.calendarAccent,
+      child: Container(
+        color: AppColors.pageBackground,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              Row(
+                children: <Widget>[
+                  IconButton(
+                    onPressed: _canGoPrevMonth
+                        ? () => _pageController.previousPage(
+                            duration: const Duration(milliseconds: 320),
+                            curve: Curves.easeOutCubic,
+                          )
+                        : null,
+                    icon: const Icon(Icons.chevron_left, color: Colors.black),
                   ),
-                ),
-                Expanded(
-                  child: InkWell(
-                    borderRadius: BorderRadius.circular(8),
-                    onTap: _openYearMonthPicker,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: <Widget>[
-                        Text(
-                          '${_displayMonth.year}年${_displayMonth.month}月',
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            fontSize: 18,
-                            fontWeight: FontWeight.w700,
+                  Expanded(
+                    child: InkWell(
+                      borderRadius: BorderRadius.circular(8),
+                      onTap: _openYearMonthPicker,
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: <Widget>[
+                          Text(
+                            '${_displayMonth.year}年${_displayMonth.month}月',
+                            textAlign: TextAlign.center,
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 2),
-                        const Icon(
-                          Icons.arrow_drop_down,
-                          color: AppColors.calendarAccent,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                IconButton(
-                  onPressed: _canGoNextMonth() ? () => _changeMonth(1) : null,
-                  icon: const Icon(
-                    Icons.chevron_right,
-                    color: AppColors.calendarAccent,
-                  ),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: _weekdays
-                  .map(
-                    (String w) => Expanded(
-                      child: Center(
-                        child: Text(
-                          w,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: scheme.onSurfaceVariant,
-                            fontWeight: FontWeight.w600,
+                          const SizedBox(width: 2),
+                          const Icon(
+                            Icons.arrow_drop_down,
+                            color: Colors.black,
                           ),
-                        ),
+                        ],
                       ),
                     ),
-                  )
-                  .toList(growable: false),
-            ),
-            const SizedBox(height: 8),
-            GestureDetector(
-              onHorizontalDragEnd: _handleMonthSwipe,
-              child: AnimatedSwitcher(
-                duration: const Duration(milliseconds: 240),
-                switchInCurve: Curves.easeOutCubic,
-                switchOutCurve: Curves.easeInCubic,
-                transitionBuilder: (Widget child, Animation<double> animation) {
-                  final Offset begin = Offset(_monthSlideDirection * 0.35, 0);
-                  return SlideTransition(
-                    position: Tween<Offset>(
-                      begin: begin,
-                      end: Offset.zero,
-                    ).animate(animation),
-                    child: FadeTransition(opacity: animation, child: child),
-                  );
-                },
-                child: GridView.builder(
-                  key: ValueKey<String>(
-                    '${_displayMonth.year}-${_displayMonth.month}',
                   ),
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  itemCount: 42,
-                  gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: 7,
-                    mainAxisSpacing: 6,
-                    crossAxisSpacing: 6,
-                    childAspectRatio: 1,
+                  IconButton(
+                    onPressed: _canGoNextMonth
+                        ? () => _pageController.nextPage(
+                            duration: const Duration(milliseconds: 320),
+                            curve: Curves.easeOutCubic,
+                          )
+                        : null,
+                    icon: const Icon(Icons.chevron_right, color: Colors.black),
                   ),
-                  itemBuilder: (BuildContext context, int index) {
-                    final int day = index - offset + 1;
-                    if (day <= 0 || day > daysInMonth) {
-                      return const SizedBox.shrink();
-                    }
-                    final DateTime date = DateTime(
-                      _displayMonth.year,
-                      _displayMonth.month,
-                      day,
-                    );
-                    final bool disabled =
-                        date.isBefore(widget.firstDate) ||
-                        date.isAfter(widget.lastDate);
-                    final bool selected = _sameDay(date, _selectedDate);
-                    final bool isToday = _sameDay(date, today);
-                    return InkWell(
-                      onTap: disabled
-                          ? null
-                          : () => setState(() => _selectedDate = date),
-                      borderRadius: BorderRadius.circular(10),
-                      child: Container(
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(10),
-                          color: selected
-                              ? AppColors.calendarAccent
-                              : Colors.transparent,
-                          border: isToday && !selected
-                              ? Border.all(
-                                  color: AppColors.calendarAccent.withValues(
-                                    alpha: 0.65,
-                                  ),
-                                )
-                              : null,
-                        ),
+                ],
+              ),
+              const SizedBox(height: 8),
+              Row(
+                children: _weekdays
+                    .map(
+                      (String w) => Expanded(
                         child: Center(
                           child: Text(
-                            '$day',
+                            w,
                             style: TextStyle(
-                              fontSize: 14,
-                              fontWeight: selected
-                                  ? FontWeight.w700
-                                  : FontWeight.w500,
-                              color: selected
-                                  ? AppColors.calendarSelectedForeground
-                                  : disabled
-                                  ? scheme.outline
-                                  : scheme.onSurface,
+                              fontSize: 12,
+                              color: scheme.onSurfaceVariant,
+                              fontWeight: FontWeight.w600,
                             ),
                           ),
                         ),
                       ),
-                    );
-                  },
-                ),
+                    )
+                    .toList(growable: false),
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('取消'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () {
-                      final DateTime now = DateTime.now();
-                      if (now.isBefore(widget.firstDate) ||
-                          now.isAfter(widget.lastDate)) {
-                        return;
-                      }
-                      setState(() {
-                        _selectedDate = now;
-                        _displayMonth = DateTime(now.year, now.month, 1);
-                      });
-                    },
-                    child: const Text('今天'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.calendarAccent,
-                      foregroundColor: AppColors.calendarSelectedForeground,
+              const SizedBox(height: 8),
+              LayoutBuilder(
+                builder: (BuildContext context, BoxConstraints constraints) {
+                  final double cellSize = (constraints.maxWidth - 36) / 7;
+                  final double gridHeight = (cellSize * 6) + (6 * 5);
+                  return SizedBox(
+                    height: gridHeight,
+                    child: PageView.builder(
+                      controller: _pageController,
+                      itemCount: _monthCount,
+                      onPageChanged: (int index) {
+                        setState(() {
+                          _currentPageIndex = index;
+                          _displayMonth = _indexToMonth(index);
+                        });
+                      },
+                      itemBuilder: (BuildContext context, int pageIndex) {
+                        final DateTime month = _indexToMonth(pageIndex);
+                        final DateTime firstDay = DateTime(
+                          month.year,
+                          month.month,
+                          1,
+                        );
+                        final int offset = (firstDay.weekday + 6) % 7;
+                        final int daysInMonth = DateTime(
+                          month.year,
+                          month.month + 1,
+                          0,
+                        ).day;
+                        final DateTime today = DateTime.now();
+
+                        return GridView.builder(
+                          padding: EdgeInsets.zero,
+                          physics: const NeverScrollableScrollPhysics(),
+                          itemCount: 42,
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 7,
+                                mainAxisSpacing: 6,
+                                crossAxisSpacing: 6,
+                                childAspectRatio: 1,
+                              ),
+                          itemBuilder: (BuildContext context, int index) {
+                            final int day = index - offset + 1;
+                            if (day <= 0 || day > daysInMonth) {
+                              return const SizedBox.shrink();
+                            }
+                            final DateTime date = DateTime(
+                              month.year,
+                              month.month,
+                              day,
+                            );
+                            final bool disabled =
+                                date.isBefore(widget.firstDate) ||
+                                date.isAfter(widget.lastDate);
+                            final bool selected = _sameDay(date, _selectedDate);
+                            final bool isToday = _sameDay(date, today);
+                            return InkWell(
+                              onTap: disabled
+                                  ? null
+                                  : () => setState(() => _selectedDate = date),
+                              borderRadius: BorderRadius.circular(10),
+                              child: Container(
+                                decoration: BoxDecoration(
+                                  borderRadius: BorderRadius.circular(10),
+                                  color: selected
+                                      ? Color.fromARGB(255, 245, 191, 72)
+                                      : Colors.transparent,
+                                  border: isToday && !selected
+                                      ? Border.all(
+                                          color: Color.fromARGB(
+                                            255,
+                                            245,
+                                            191,
+                                            72,
+                                          ).withValues(alpha: 0.65),
+                                        )
+                                      : null,
+                                ),
+                                child: Center(
+                                  child: Text(
+                                    '$day',
+                                    style: TextStyle(
+                                      fontSize: 14,
+                                      fontWeight: selected
+                                          ? FontWeight.w700
+                                          : FontWeight.w500,
+                                      color: selected
+                                          ? Color.fromRGBO(33, 33, 33, 1)
+                                          : disabled
+                                          ? scheme.outline
+                                          : scheme.onSurface,
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            );
+                          },
+                        );
+                      },
                     ),
-                    onPressed: () => Navigator.of(context).pop(_selectedDate),
-                    child: const Text('确定'),
+                  );
+                },
+              ),
+              const SizedBox(height: 12),
+              Row(
+                children: <Widget>[
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.black87,
+                      ),
+                      child: const Text('取消'),
+                    ),
                   ),
-                ),
-              ],
-            ),
-          ],
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () async {
+                        final DateTime now = DateTime.now();
+                        if (now.isBefore(widget.firstDate) ||
+                            now.isAfter(widget.lastDate)) {
+                          return;
+                        }
+                        setState(() {
+                          _selectedDate = now;
+                        });
+                        await _animateToMonth(DateTime(now.year, now.month, 1));
+                      },
+                      style: OutlinedButton.styleFrom(
+                        backgroundColor: Colors.blue,
+                        foregroundColor: Colors.white,
+                      ),
+                      child: const Text('今天'),
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Color.fromARGB(255, 245, 191, 72),
+                        foregroundColor: Colors.black87,
+                      ),
+                      onPressed: () => Navigator.of(context).pop(_selectedDate),
+                      child: const Text('确定'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -370,81 +373,87 @@ class _YearMonthPickerSheetState extends State<_YearMonthPickerSheet> {
   @override
   Widget build(BuildContext context) {
     return SafeArea(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: <Widget>[
-            const Text(
-              '快速切换年月',
-              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              height: 210,
-              decoration: BoxDecoration(
-                color: AppColors.calendarAccent.withValues(alpha: 0.16),
-                borderRadius: BorderRadius.circular(14),
+      child: Container(
+        color: AppColors.pageBackground,
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: <Widget>[
+              const Text(
+                '快速切换年月',
+                style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700),
               ),
-              child: Row(
+              const SizedBox(height: 12),
+              Container(
+                height: 210,
+                decoration: BoxDecoration(
+                  color: AppColors.panelDivider.withValues(alpha: 0.16),
+                  borderRadius: BorderRadius.circular(14),
+                ),
+                child: Row(
+                  children: <Widget>[
+                    Expanded(
+                      child: CupertinoPicker(
+                        scrollController: _yearController,
+                        itemExtent: 44,
+                        magnification: 1.08,
+                        useMagnifier: true,
+                        onSelectedItemChanged: (int index) {
+                          setState(() => _year = _minYear + index);
+                        },
+                        children: <Widget>[
+                          for (int y = _minYear; y <= _maxYear; y++)
+                            Center(child: Text('$y年')),
+                        ],
+                      ),
+                    ),
+                    Expanded(
+                      child: CupertinoPicker(
+                        scrollController: _monthController,
+                        itemExtent: 44,
+                        magnification: 1.08,
+                        useMagnifier: true,
+                        onSelectedItemChanged: (int index) {
+                          setState(() => _month = index + 1);
+                        },
+                        children: <Widget>[
+                          for (int m = 1; m <= 12; m++)
+                            Center(child: Text('$m月')),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 12),
+              Row(
                 children: <Widget>[
                   Expanded(
-                    child: CupertinoPicker(
-                      scrollController: _yearController,
-                      itemExtent: 44,
-                      magnification: 1.08,
-                      useMagnifier: true,
-                      onSelectedItemChanged: (int index) {
-                        setState(() => _year = _minYear + index);
-                      },
-                      children: <Widget>[
-                        for (int y = _minYear; y <= _maxYear; y++)
-                          Center(child: Text('$y年')),
-                      ],
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(context).pop(),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.black87,
+                      ),
+                      child: const Text('取消'),
                     ),
                   ),
+                  const SizedBox(width: 8),
                   Expanded(
-                    child: CupertinoPicker(
-                      scrollController: _monthController,
-                      itemExtent: 44,
-                      magnification: 1.08,
-                      useMagnifier: true,
-                      onSelectedItemChanged: (int index) {
-                        setState(() => _month = index + 1);
-                      },
-                      children: <Widget>[
-                        for (int m = 1; m <= 12; m++)
-                          Center(child: Text('$m月')),
-                      ],
+                    child: FilledButton(
+                      style: FilledButton.styleFrom(
+                        backgroundColor: Color.fromARGB(255, 245, 191, 72),
+                        foregroundColor: Color.fromRGBO(33, 33, 33, 1),
+                      ),
+                      onPressed: () =>
+                          Navigator.of(context).pop(DateTime(_year, _month, 1)),
+                      child: const Text('切换'),
                     ),
                   ),
                 ],
               ),
-            ),
-            const SizedBox(height: 12),
-            Row(
-              children: <Widget>[
-                Expanded(
-                  child: OutlinedButton(
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: const Text('取消'),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: FilledButton(
-                    style: FilledButton.styleFrom(
-                      backgroundColor: AppColors.calendarAccent,
-                      foregroundColor: AppColors.calendarSelectedForeground,
-                    ),
-                    onPressed: () =>
-                        Navigator.of(context).pop(DateTime(_year, _month, 1)),
-                    child: const Text('切换'),
-                  ),
-                ),
-              ],
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
